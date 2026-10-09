@@ -113,7 +113,8 @@ type saved struct {
 	Sphere   int    `json:"sphere"`
 	Ref      string `json:"ref,omitempty"`
 	Filter   string `json:"filter,omitempty"`
-	Archived bool   `json:"archived,omitempty"`
+	View     int    `json:"view,omitempty"`
+	NoDetail bool   `json:"no_detail,omitempty"`
 	Sel      string `json:"sel,omitempty"`
 	Full     bool   `json:"full,omitempty"`
 	Help     bool   `json:"help,omitempty"`
@@ -132,7 +133,10 @@ func (m *Model) restore() {
 	if s.Sphere >= 0 && s.Sphere <= len(m.spheres) {
 		m.sphereSel = s.Sphere
 	}
-	m.ref, m.filter, m.archived, m.full, m.helpOn = s.Ref, s.Filter, s.Archived, s.Full, s.Help
+	if s.View >= 0 && s.View < len(views) {
+		m.view = s.View
+	}
+	m.ref, m.filter, m.detailOff, m.full, m.helpOn = s.Ref, s.Filter, s.NoDetail, s.Full, s.Help
 	m.input.SetValue(s.Filter)
 	m.reload()
 	m.applyFilter(s.Sel)
@@ -141,7 +145,7 @@ func (m *Model) restore() {
 
 // reexec replaces the process with the new binary, on the same view and selection.
 func (m *Model) reexec() error {
-	s := saved{Sphere: m.sphereSel, Ref: m.ref, Filter: m.filter, Archived: m.archived, Full: m.full, Help: m.helpOn}
+	s := saved{Sphere: m.sphereSel, Ref: m.ref, Filter: m.filter, View: m.view, NoDetail: m.detailOff, Full: m.full, Help: m.helpOn}
 	if it := m.current(); it != nil {
 		s.Sel = it.ID
 	}

@@ -51,6 +51,8 @@ func press(m *Model, keys ...string) {
 			msg = tea.KeyPressMsg{Code: tea.KeyEscape}
 		case "enter":
 			msg = tea.KeyPressMsg{Code: tea.KeyEnter}
+		case "tab":
+			msg = tea.KeyPressMsg{Code: tea.KeyTab}
 		default:
 			msg = tea.KeyPressMsg{Code: rune(k[0]), Text: k}
 		}
@@ -79,13 +81,25 @@ func TestSphereAndArchive(t *testing.T) {
 	if m.sphereName() != "perso" || len(m.items) != 2 {
 		t.Fatalf("sphere perso: %d items", len(m.items))
 	}
-	press(m, "x")
+	press(m, "e")
 	if len(m.items) != 1 {
-		t.Fatalf("archived notes leave the list: %d", len(m.items))
+		t.Fatalf("e archives: %d", len(m.items))
 	}
-	press(m, "a")
-	if len(m.items) != 2 || m.items[0].State != store.Archived {
-		t.Fatalf("a shows the archived: %v", m.items)
+	press(m, "2")
+	if len(m.items) != 1 || m.items[0].State != store.Archived {
+		t.Fatalf("view 2 lists the archived: %v", m.items)
+	}
+	press(m, " ")
+	if len(m.items) != 0 {
+		t.Fatalf("space restores an archived note: %d", len(m.items))
+	}
+	press(m, "1", " ", "3")
+	if len(m.items) != 2 {
+		t.Fatalf("view 3 lists every note: %d", len(m.items))
+	}
+	press(m, "tab")
+	if !m.detailOff {
+		t.Fatal("tab hides the detail")
 	}
 }
 

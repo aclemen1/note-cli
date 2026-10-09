@@ -56,14 +56,16 @@ detail of the selected one below. Every entry opens in a tuikit modal.
 |---|---|
 | `j` `k` `gg` `G` `ctrl+d` `ctrl+u` | move |
 | `enter` / `esc` | full detail / back |
+| `tab` | detail panel on / off |
 | `J` `K` | scroll the detail |
+| `1` `2` `3` | view: active, archived, all (`a`: active ↔ all) |
 | `/` | filter on the text, the refs and the source |
 | `f` / `F` | notes of one ref (completion) / every ref |
 | `s` | sphere: every one, then each |
-| `a` | show archived notes |
 | `c` `n` | new note: sphere, refs, text, source |
 | `E` | edit refs, text, source |
-| `x` / `u` | archive / restore |
+| `e` (`x`) / `u` | archive / restore |
+| `space` | archive or restore |
 | `#` | delete, after typing the id |
 | `o` | run `open.run` with `{"sphere","note"}` on stdin |
 | `r` | reload |

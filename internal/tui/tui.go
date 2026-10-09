@@ -89,7 +89,8 @@ type Model struct {
 	sphereSel int // 0: every sphere, else spheres[sphereSel-1]
 	ref       string
 	filter    string
-	archived  bool
+	view      int  // index in views
+	detailOff bool // tab hides the detail panel
 
 	all   []actions.Item // as read, before the text filter
 	items []actions.Item
@@ -162,10 +163,7 @@ func (m *Model) call(name string, args map[string]any) (any, error) {
 }
 
 func (m *Model) reload() {
-	args := map[string]any{"state": "active"}
-	if m.archived {
-		args["state"] = "all"
-	}
+	args := map[string]any{"state": views[m.view].state}
 	if m.sphereSel > 0 {
 		args["sphere"] = m.sphereName()
 	}
@@ -527,27 +525,37 @@ func (m *Model) key(k string) tea.Cmd {
 		m.sphereSel = (m.sphereSel + 1) % (len(m.spheres) + 1)
 		m.reload()
 		m.say("sphère : "+m.sphereName(), false)
+	case "1", "2", "3":
+		m.setView(int(k[0] - '1'))
 	case "a":
-		m.archived = !m.archived
-		m.reload()
-		if m.archived {
-			m.say("archivées affichées", false)
+		if m.view == 0 {
+			m.setView(2)
 		} else {
-			m.say("archivées masquées", false)
+			m.setView(0)
 		}
+	case "tab":
+		m.detailOff = !m.detailOff
 	case "c", "n":
 		return m.newForm()
 	case "E":
 		if it != nil {
 			return m.editForm(*it)
 		}
-	case "x":
+	case "e", "x":
 		if it != nil {
 			m.act("archive", nil, "archivée : "+it.ID)
 		}
 	case "u":
 		if it != nil {
 			m.act("restore", nil, "restaurée : "+it.ID)
+		}
+	case " ", "space":
+		if it != nil {
+			if it.State == store.Archived {
+				m.act("restore", nil, "restaurée : "+it.ID)
+			} else {
+				m.act("archive", nil, "archivée : "+it.ID)
+			}
 		}
 	case "#":
 		if it != nil {
@@ -569,7 +577,24 @@ func (m *Model) move(d int) {
 	m.detailTop = 0
 }
 
-func (m *Model) listHeight() int { return max(3, (m.h-4)/2) }
+var views = []struct{ name, state string }{
+	{"actives", store.Active},
+	{"archivées", store.Archived},
+	{"toutes", "all"},
+}
+
+func (m *Model) setView(v int) {
+	m.view, m.detailTop = v, 0
+	m.reload()
+	m.say("vue : "+views[v].name, false)
+}
+
+func (m *Model) listHeight() int {
+	if m.detailOff {
+		return max(3, m.h-4)
+	}
+	return max(3, (m.h-4)/2)
+}
 
 var (
 	cAccent = lipgloss.Color("141")
@@ -592,7 +617,7 @@ func sphereStyle(sp string) lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(cPerso)
 }
 
-const help = "j/k bouger · entrée détail · / filtre · f réf. · F toutes les réfs · s sphère · a archivées · c nouvelle · E modifier · x archiver · u restaurer · # supprimer · o ouvrir · r relire · q quitter"
+const help = "j/k bouger · entrée détail · tab panneau · 1–3 vue · / filtre · f réf. · F toutes les réfs · s sphère · c nouvelle · E modifier · e archiver · espace archiver/restaurer · # supprimer · o ouvrir · r relire · q quitter"
 
 func (m *Model) View() tea.View {
 	v := tea.NewView(tuikit.Overlay(m.render(), m.modal, m.w, m.h))
@@ -606,8 +631,13 @@ func (m *Model) render() string {
 	if m.ref != "" {
 		head += sBold.Render("réf. : "+m.ref) + sMuted.Render(" · ")
 	}
-	if m.archived {
-		head += sMuted.Render("avec archivées · ")
+	for i, v := range views {
+		label := fmt.Sprintf("%d %s", i+1, v.name)
+		if i == m.view {
+			head += sBold.Render(label) + sMuted.Render(" · ")
+		} else {
+			head += sMuted.Render(label + " · ")
+		}
 	}
 	head += sMuted.Render(fmt.Sprintf("%d note(s)", len(m.items)))
 	b.WriteString(ansi.Truncate(head, m.w, "…") + "\n")
@@ -627,9 +657,11 @@ func (m *Model) render() string {
 	} else {
 		lh := m.listHeight()
 		b.WriteString(strings.Join(m.list(lh), "\n") + "\n")
-		b.WriteString(sMuted.Render(strings.Repeat("─", m.w)) + "\n")
-		for _, l := range m.window(m.detail(), body-lh-1) {
-			b.WriteString(l + "\n")
+		if !m.detailOff {
+			b.WriteString(sMuted.Render(strings.Repeat("─", m.w)) + "\n")
+			for _, l := range m.window(m.detail(), body-lh-1) {
+				b.WriteString(l + "\n")
+			}
 		}
 	}
 	foot := sMuted.Render("? aide")
