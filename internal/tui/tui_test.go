@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -112,5 +114,49 @@ func TestRefFilterAndCompletion(t *testing.T) {
 	}
 	if got := m.complete("rdir"); len(got) != 1 || got[0].Value != "oj:RDIR-17" {
 		t.Fatalf("complete: %v", got)
+	}
+}
+
+func TestSelect(t *testing.T) {
+	m := model(t)
+	m.selectID("pn-0002")
+	if m.current().ID != "PN-0002" || m.status != "" {
+		t.Fatalf("select: %s %q", m.current().ID, m.status)
+	}
+	m.selectID("UN-0001")
+	press(m, "e")
+	m.selectID("PN-0001")
+	m.selectID("UN-0001")
+	if m.current().ID != "UN-0001" || m.view != 2 {
+		t.Fatalf("an archived note opens in the view of every note: %s view %d", m.current().ID, m.view)
+	}
+	m.selectID("PN-0099")
+	if m.status == "" || !m.statusErr {
+		t.Fatal("an unknown id says so")
+	}
+}
+
+func TestSharedCompletion(t *testing.T) {
+	refs := filepath.Join(t.TempDir(), "refs.yaml")
+	os.WriteFile(refs, []byte("sources:\n  dossiers:\n    prefix: \"office:\"\n    static:\n      - {value: P-0051, label: \"note : outil de notes\"}\n      - {value: P-0002, label: Armoire de pharmacie}\n"), 0o644)
+	t.Setenv("TUIKIT_REFS", refs)
+	m := model(t)
+	m.cfg.Complete = []string{"dossiers"}
+	m2 := New(m.cfgPath, m.cfg, m.spheres)
+	m2.reload()
+	got := m2.complete("pharmacie")
+	if len(got) != 1 || got[0].Value != "office:P-0002" {
+		t.Fatalf("a dossier is found by its title: %v", got)
+	}
+	var values []string
+	for _, it := range m2.complete("office:") {
+		values = append(values, it.Value)
+	}
+	if strings.Join(values, ",") != "office:P-0051,office:P-0002,office:P-0030" {
+		t.Fatalf("shared sources first, then the cited refs not yet proposed: %v", values)
+	}
+	m.cfg.Complete = []string{"absent"}
+	if m3 := New(m.cfgPath, m.cfg, m.spheres); m3.shared != nil || !m3.statusErr {
+		t.Fatal("an unknown source says so and keeps the cited refs")
 	}
 }

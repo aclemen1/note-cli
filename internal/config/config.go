@@ -20,6 +20,9 @@ type Config struct {
 	Hooks   []Hook            `yaml:"hooks,omitempty"`
 	// Open is the command the TUI runs on o: it opens what a note refers to.
 	Open Open `yaml:"open,omitempty"`
+	// Complete names the sources of the shared completion file (tuikit refs.yaml)
+	// that the TUI proposes for refs, besides the refs already cited.
+	Complete []string `yaml:"complete,omitempty"`
 
 	path string
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/aclemen1/tuikit"
+	"github.com/aclemen1/tuikit/complete"
 
 	"github.com/aclemen1/note-cli/internal/actions"
 	"github.com/aclemen1/note-cli/internal/config"
@@ -34,9 +35,10 @@ func init() {
 		Params: []spec.Param{
 			{Name: "sphere", Kind: spec.String, Help: "Show only this sphere. Defaults to every sphere."},
 			{Name: "ref", Kind: spec.String, Help: "Show only the notes of this ref, e.g. office:P-0030."},
+			{Name: "select", Kind: spec.String, Help: "Open on this note, selected and visible, e.g. PN-0002; an unknown id opens the TUI as usual, with a message."},
 		},
 		Effects:  []string{"Runs until q; every change goes through the same actions as the CLI."},
-		Examples: []string{"note tui", "note tui --ref oj:RDIR-17"},
+		Examples: []string{"note tui", "note tui --ref oj:RDIR-17", "note tui --select PN-0002"},
 		Run: func(ctx *spec.Context) (any, error) {
 			cfg, err := config.Load(ctx.Config)
 			if err != nil {
@@ -62,6 +64,9 @@ func init() {
 				defer w.Close()
 			}
 			m.reload()
+			if id := ctx.Str("select"); id != "" {
+				m.selectID(id)
+			}
 			m.restore()
 			prog := tea.NewProgram(m)
 			usr1 := make(chan os.Signal, 1)
@@ -96,6 +101,8 @@ type Model struct {
 	items []actions.Item
 	refs  []actions.RefCount
 	sel   int
+	// shared proposes refs from the sources named by complete in the config.
+	shared *complete.Completer
 
 	filtering bool
 	input     textinput.Model
@@ -126,6 +133,14 @@ func New(cfgPath string, cfg *config.Config, spheres []string) *Model {
 	in := textinput.New()
 	in.Prompt = "/"
 	m := &Model{cfgPath: cfgPath, cfg: cfg, spheres: spheres, input: in, w: 80, h: 24}
+	if len(cfg.Complete) > 0 {
+		c, err := complete.Load(cfg.Complete...)
+		if err != nil {
+			m.say("complétion : "+err.Error(), true)
+		} else {
+			m.shared = c
+		}
+	}
 	m.exe = executable()
 	m.exeStamp = stamp(m.exe)
 	return m
@@ -307,6 +322,34 @@ func (m *Model) keyFilter(k tea.KeyPressMsg) tea.Cmd {
 	return cmd
 }
 
+// selectID selects a note, switching to the view of every note if it is archived.
+func (m *Model) selectID(id string) {
+	want := strings.ToUpper(strings.TrimSpace(id))
+	find := func() bool {
+		for i, it := range m.items {
+			if it.ID == want {
+				m.sel, m.detailTop = i, 0
+				return true
+			}
+		}
+		return false
+	}
+	if find() {
+		return
+	}
+	if m.view != 2 {
+		old := m.view
+		m.view = 2
+		m.reload()
+		if find() {
+			return
+		}
+		m.view = old
+		m.reload()
+	}
+	m.say("note "+want+" introuvable dans cette vue", true)
+}
+
 func (m *Model) currentID() string {
 	if it := m.current(); it != nil {
 		return it.ID
@@ -319,12 +362,20 @@ func (m *Model) openModal(title string, c tuikit.Content) tea.Cmd {
 	return nil
 }
 
-// complete proposes the refs already cited, the most recent first.
+// complete proposes the refs of the shared sources, then the refs already
+// cited, the most recent first.
 func (m *Model) complete(q string) []tuikit.Item {
-	q = actions.Fold(q)
 	var out []tuikit.Item
+	seen := map[string]bool{}
+	if m.shared != nil {
+		for _, it := range m.shared.Complete(q) {
+			seen[it.Value] = true
+			out = append(out, it)
+		}
+	}
+	fq := actions.Fold(q)
 	for _, rc := range m.refs {
-		if q == "" || strings.Contains(actions.Fold(rc.Ref), q) {
+		if !seen[rc.Ref] && (fq == "" || strings.Contains(actions.Fold(rc.Ref), fq)) {
 			out = append(out, tuikit.Item{Value: rc.Ref, Label: fmt.Sprintf("%d note(s)", rc.Count)})
 		}
 	}

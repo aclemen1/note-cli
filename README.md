@@ -49,8 +49,10 @@ note ls --ref <tool>:<id>
 
 ## TUI
 
-`note tui [--ref <tool>:<id>] [--sphere <sphere>]`: the notes, newest first, the
-detail of the selected one below. Every entry opens in a tuikit modal.
+`note tui [--ref <tool>:<id>] [--sphere <sphere>] [--select <id>]`: the notes,
+newest first, the detail of the selected one below. `--select` opens on one
+note (an archived one in the view of every note); an unknown id opens as usual,
+with a message. Every entry opens in a tuikit modal.
 
 | Key | Action |
 |---|---|
@@ -102,7 +104,12 @@ spheres:
   pro: {root: ~/note/pro, prefix: U, vcs: jj}
 open:
   run: ["~/bin/note-open"]     # {"sphere","note"} on stdin
+complete: [cases, people]      # sources of tuikit's refs.yaml proposed for refs in the TUI
 ```
+
+The TUI completes refs from the sources named by `complete`, declared once in
+tuikit's `~/.config/tuikit/refs.yaml` (`$TUIKIT_REFS`), then from the refs
+already cited.
 
 | Variable | Effect |
 |---|---|
