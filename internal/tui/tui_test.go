@@ -141,7 +141,7 @@ func TestSharedCompletion(t *testing.T) {
 	os.WriteFile(refs, []byte("sources:\n  dossiers:\n    prefix: \"office:\"\n    static:\n      - {value: P-0051, label: \"note : outil de notes\"}\n      - {value: P-0002, label: Armoire de pharmacie}\n"), 0o644)
 	t.Setenv("TUIKIT_REFS", refs)
 	m := model(t)
-	m.cfg.Complete = []string{"dossiers"}
+	m.cfg.Complete = config.Complete{"refs": {"dossiers"}}
 	m2 := New(m.cfgPath, m.cfg, m.spheres)
 	m2.reload()
 	got := m2.complete("pharmacie")
@@ -155,7 +155,7 @@ func TestSharedCompletion(t *testing.T) {
 	if strings.Join(values, ",") != "office:P-0051,office:P-0002,office:P-0030" {
 		t.Fatalf("shared sources first, then the cited refs not yet proposed: %v", values)
 	}
-	m.cfg.Complete = []string{"absent"}
+	m.cfg.Complete = config.Complete{"refs": {"absent"}}
 	if m3 := New(m.cfgPath, m.cfg, m.spheres); m3.shared != nil || !m3.statusErr {
 		t.Fatal("an unknown source says so and keeps the cited refs")
 	}

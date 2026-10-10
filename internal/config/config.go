@@ -20,9 +20,9 @@ type Config struct {
 	Hooks   []Hook            `yaml:"hooks,omitempty"`
 	// Open is the command the TUI runs on o: it opens what a note refers to.
 	Open Open `yaml:"open,omitempty"`
-	// Complete names the sources of the shared completion file (tuikit refs.yaml)
-	// that the TUI proposes for refs, besides the refs already cited.
-	Complete []string `yaml:"complete,omitempty"`
+	// Complete names, per field, the sources of the shared completion file
+	// (tuikit refs.yaml) the TUI proposes, e.g. refs: [cases, people].
+	Complete Complete `yaml:"complete,omitempty"`
 
 	path string
 }
@@ -35,6 +35,26 @@ type Hook struct {
 	Ref     string   `yaml:"ref,omitempty"`     // keep notes with a ref that starts with this
 	Run     []string `yaml:"run"`               // argv; a leading ~ is expanded
 	Timeout string   `yaml:"timeout,omitempty"` // default 30s
+}
+
+// Complete maps a field to its completion sources; a flat list is read as the sources of refs.
+type Complete map[string][]string
+
+func (c *Complete) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind == yaml.SequenceNode {
+		var l []string
+		if err := n.Decode(&l); err != nil {
+			return err
+		}
+		*c = Complete{"refs": l}
+		return nil
+	}
+	var m map[string][]string
+	if err := n.Decode(&m); err != nil {
+		return fmt.Errorf("complete: expected refs: [<source>, …]: %w", err)
+	}
+	*c = m
+	return nil
 }
 
 // Open reads {"sphere","note"} on stdin and opens what the note refers to; what it prints is shown.

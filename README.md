@@ -104,10 +104,11 @@ spheres:
   pro: {root: ~/note/pro, prefix: U, vcs: jj}
 open:
   run: ["~/bin/note-open"]     # {"sphere","note"} on stdin
-complete: [cases, people]      # sources of tuikit's refs.yaml proposed for refs in the TUI
+complete:
+  refs: [cases, people]        # sources of tuikit's refs.yaml for the refs fields and the f filter
 ```
 
-The TUI completes refs from the sources named by `complete`, declared once in
+The TUI completes refs from the sources named by `complete.refs`, declared once in
 tuikit's `~/.config/tuikit/refs.yaml` (`$TUIKIT_REFS`), then from the refs
 already cited.
 

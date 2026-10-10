@@ -133,8 +133,8 @@ func New(cfgPath string, cfg *config.Config, spheres []string) *Model {
 	in := textinput.New()
 	in.Prompt = "/"
 	m := &Model{cfgPath: cfgPath, cfg: cfg, spheres: spheres, input: in, w: 80, h: 24}
-	if len(cfg.Complete) > 0 {
-		c, err := complete.Load(cfg.Complete...)
+	if sources := cfg.Complete["refs"]; len(sources) > 0 {
+		c, err := complete.Load(sources...)
 		if err != nil {
 			m.say("complétion : "+err.Error(), true)
 		} else {

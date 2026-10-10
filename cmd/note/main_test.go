@@ -198,3 +198,16 @@ func TestConfigRefusesUnknownHookEvent(t *testing.T) {
 		t.Fatal("an unknown event must be refused")
 	}
 }
+
+func TestConfigCompleteByField(t *testing.T) {
+	for _, line := range []string{"complete: [a, b]\n", "complete:\n  refs: [a, b]\n"} {
+		e := setup(t)
+		f, _ := os.OpenFile(e.cfg, os.O_APPEND|os.O_WRONLY, 0o644)
+		f.WriteString(line)
+		f.Close()
+		cfg, err := config.Load("")
+		if err != nil || strings.Join(cfg.Complete["refs"], ",") != "a,b" {
+			t.Fatalf("%q: %v %v", line, cfg.Complete, err)
+		}
+	}
+}
