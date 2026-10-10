@@ -115,6 +115,7 @@ type Model struct {
 	status    string
 	statusErr bool
 	w, h      int
+	busy      *tuikit.Busy // travaux de fond : actions et leurs crochets, ouvertures
 
 	events             chan struct{}
 	exe                string
@@ -124,15 +125,23 @@ type Model struct {
 
 type tick struct{}
 
-type opened struct {
-	out string
-	err error
+// acted ends an action run in the background: the notes are read again, keep selected.
+type acted struct{ keep string }
+
+// failed ends a job that failed: Busy records the error, then the TUI gets
+// then, when there is one.
+type failed struct {
+	err  error
+	then tea.Msg
 }
+
+func (f failed) Error() string { return f.err.Error() }
+func (f failed) Unwrap() error { return f.err }
 
 func New(cfgPath string, cfg *config.Config, spheres []string) *Model {
 	in := textinput.New()
 	in.Prompt = "/"
-	m := &Model{cfgPath: cfgPath, cfg: cfg, spheres: spheres, input: in, w: 80, h: 24}
+	m := &Model{cfgPath: cfgPath, cfg: cfg, spheres: spheres, input: in, w: 80, h: 24, busy: tuikit.NewBusy()}
 	if uses := cfg.Complete["refs"]; len(uses) > 0 {
 		c, missing := complete.FromConfig(uses)
 		m.shared = c
@@ -160,20 +169,48 @@ func (m *Model) sphereName() string {
 
 // call runs an action of the spec, as the CLI would.
 func (m *Model) call(name string, args map[string]any) (any, error) {
+	res, warnings, err := run(m.cfgPath, name, args)
+	if err == nil && len(warnings) > 0 {
+		m.say(strings.Join(warnings, " · "), true)
+	}
+	return res, err
+}
+
+// run runs an action of the spec without touching the model, so that it can
+// run in the background.
+func run(cfgPath, name string, args map[string]any) (any, []string, error) {
 	a := spec.Find("note", name)
 	if args == nil {
 		args = map[string]any{}
 	}
 	parsed, err := spec.ArgsFrom(a, args)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	ctx := &spec.Context{Args: parsed, Config: m.cfgPath, Format: "json"}
+	ctx := &spec.Context{Args: parsed, Config: cfgPath, Format: "json"}
 	res, err := a.Run(ctx)
-	if err == nil && len(ctx.Warnings) > 0 {
-		m.say(strings.Join(ctx.Warnings, " · "), true)
-	}
-	return res, err
+	return res, ctx.Warnings, err
+}
+
+// job runs an action that writes (and fires its hooks) in the background;
+// the notes are read again at its end, the note it made or changed selected.
+// A hook that fails leaves the action done and the failure in the jobs.
+func (m *Model) job(label, name string, args map[string]any) tea.Cmd {
+	cfgPath := m.cfgPath
+	return m.busy.Wrap(label, func() tea.Msg {
+		res, warnings, err := run(cfgPath, name, args)
+		if err != nil {
+			return failed{err: err}
+		}
+		done := acted{}
+		if it, ok := res.(actions.Item); ok {
+			done.keep = it.ID
+		}
+		if len(warnings) > 0 {
+			return failed{fmt.Errorf("faite, mais %s", strings.Join(warnings, " · ")), done}
+		}
+		return done
+	})
 }
 
 func (m *Model) reload() {
@@ -225,28 +262,38 @@ func (m *Model) current() *actions.Item {
 
 func (m *Model) say(s string, isErr bool) { m.status, m.statusErr = s, isErr }
 
-// act runs an action on the selected note and reloads.
-func (m *Model) act(name string, args map[string]any, done string) {
+// act runs an action on the selected note in the background, under label
+// followed by the note's id.
+func (m *Model) act(name string, args map[string]any, label string) tea.Cmd {
 	it := m.current()
 	if it == nil {
-		return
+		return nil
 	}
 	if args == nil {
 		args = map[string]any{}
 	}
 	args["id"] = it.ID
-	if _, err := m.call(name, args); err != nil {
-		m.say(err.Error(), true)
-		return
-	}
-	m.reload()
-	if m.status == "" || !m.statusErr {
-		m.say(done, false)
-	}
+	return m.job(label+" "+it.ID, name, args)
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if cmd, ok := m.busy.Update(msg); ok {
+		return m, cmd
+	}
 	switch msg := msg.(type) {
+	case failed:
+		if msg.then == nil {
+			return m, nil
+		}
+		return m.Update(msg.then)
+	case acted:
+		keep := msg.keep
+		if keep == "" {
+			keep = m.currentID()
+		}
+		m.reload()
+		m.applyFilter(keep)
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
 		if m.modal != nil {
@@ -271,18 +318,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		return m, everyBin()
-	case opened:
-		if msg.err != nil {
-			m.say("ouvrir : "+msg.err.Error(), true)
-		} else {
-			m.say(msg.out, false)
-		}
-		return m, nil
 	case tuikit.DoneMsg:
-		m.done(msg)
-		return m, nil
+		return m, m.done(msg)
 	case tuikit.CancelMsg:
-		m.say("annulé", false)
+		if msg.ID != "busy" {
+			m.say("annulé", false)
+		}
 		return m, nil
 	}
 	if m.modal.Open() {
@@ -405,7 +446,7 @@ func (m *Model) editForm(it actions.Item) tea.Cmd {
 	return m.openModal("Modifier "+it.ID, form)
 }
 
-func (m *Model) done(msg tuikit.DoneMsg) {
+func (m *Model) done(msg tuikit.DoneMsg) tea.Cmd {
 	v := msg.Values
 	switch msg.ID {
 	case "new":
@@ -413,19 +454,11 @@ func (m *Model) done(msg tuikit.DoneMsg) {
 		if s := strings.TrimSpace(v.String("source")); s != "" {
 			args["source"] = s
 		}
-		res, err := m.call("add", args)
-		if err != nil {
-			m.say(err.Error(), true)
-			return
-		}
-		id := res.(actions.Item).ID
-		m.reload()
-		m.applyFilter(id)
-		m.say("ajoutée : "+id, false)
+		return m.job("ajouter une note ("+v.String("sphere")+")", "add", args)
 	case "edit":
 		it := m.current()
 		if it == nil {
-			return
+			return nil
 		}
 		args := map[string]any{}
 		refs := v.Strings("refs")
@@ -446,9 +479,9 @@ func (m *Model) done(msg tuikit.DoneMsg) {
 		}
 		if len(args) == 0 {
 			m.say("rien à modifier", false)
-			return
+			return nil
 		}
-		m.act("edit", args, "modifiée : "+it.ID)
+		return m.act("edit", args, "modifier")
 	case "ref":
 		m.ref = strings.TrimSpace(v.String("ref"))
 		m.sel = 0
@@ -459,11 +492,9 @@ func (m *Model) done(msg tuikit.DoneMsg) {
 			m.say("réf. : "+m.ref, false)
 		}
 	case "rm":
-		if it := m.current(); it != nil {
-			id := it.ID
-			m.act("rm", nil, "supprimée : "+id)
-		}
+		return m.act("rm", nil, "supprimer")
 	}
+	return nil
 }
 
 func minus(a, b []string) []string {
@@ -493,17 +524,17 @@ func (m *Model) openLinked(it actions.Item) tea.Cmd {
 		argv[i] = config.Expand(a)
 	}
 	in, _ := json.Marshal(map[string]any{"sphere": it.Sphere, "note": it.Note})
-	return func() tea.Msg {
+	return m.busy.Run("ouvrir "+it.ID, func() (string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 		cmd.Stdin = bytes.NewReader(in)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			return opened{err: fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))}
+			return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
 		}
-		return opened{out: strings.TrimSpace(string(out))}
-	}
+		return strings.TrimSpace(string(out)), nil
+	})
 }
 
 func (m *Model) key(k string) tea.Cmd {
@@ -593,19 +624,18 @@ func (m *Model) key(k string) tea.Cmd {
 		}
 	case "e", "x":
 		if it != nil {
-			m.act("archive", nil, "archivée : "+it.ID)
+			return m.act("archive", nil, "archiver")
 		}
 	case "u":
 		if it != nil {
-			m.act("restore", nil, "restaurée : "+it.ID)
+			return m.act("restore", nil, "restaurer")
 		}
 	case " ", "space":
 		if it != nil {
 			if it.State == store.Archived {
-				m.act("restore", nil, "restaurée : "+it.ID)
-			} else {
-				m.act("archive", nil, "archivée : "+it.ID)
+				return m.act("restore", nil, "restaurer")
 			}
+			return m.act("archive", nil, "archiver")
 		}
 	case "#":
 		if it != nil {
@@ -615,6 +645,8 @@ func (m *Model) key(k string) tea.Cmd {
 		if it != nil {
 			return m.openLinked(*it)
 		}
+	case tuikit.BusyKey:
+		return m.openModal("Travaux", m.busy.List())
 	}
 	return nil
 }
@@ -667,7 +699,7 @@ func sphereStyle(sp string) lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(cPerso)
 }
 
-const help = "j/k bouger · entrée détail · tab panneau · 1–3 vue · / filtre · f réf. · F toutes les réfs · s sphère · c nouvelle · E modifier · e archiver · espace archiver/restaurer · # supprimer · o ouvrir · r relire · q quitter"
+const help = "j/k bouger · entrée détail · tab panneau · 1–3 vue · / filtre · f réf. · F toutes les réfs · s sphère · c nouvelle · E modifier · e archiver · espace archiver/restaurer · # supprimer · o ouvrir · r relire · ! travaux · q quitter"
 
 func (m *Model) View() tea.View {
 	v := tea.NewView(tuikit.Overlay(m.render(), m.modal, m.w, m.h))
@@ -714,16 +746,14 @@ func (m *Model) render() string {
 			}
 		}
 	}
-	foot := sMuted.Render("? aide")
-	if m.helpOn {
+	foot := m.statusLine()
+	switch {
+	case m.helpOn && foot != "":
+		foot = sMuted.Render(ansi.Wrap(help, m.w, "")) + "\n" + foot
+	case m.helpOn:
 		foot = sMuted.Render(ansi.Wrap(help, m.w, ""))
-	}
-	if m.status != "" {
-		if m.statusErr {
-			foot = sErr.Render(ansi.Truncate(m.status, m.w, "…"))
-		} else {
-			foot = ansi.Truncate(m.status, m.w, "…")
-		}
+	case foot == "":
+		foot = sMuted.Render("? aide")
 	}
 	room := max(1, m.h-strings.Count(foot, "\n")-1)
 	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
@@ -731,6 +761,26 @@ func (m *Model) render() string {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines[:room], "\n") + "\n" + foot
+}
+
+// statusLine shows the background jobs, then the message of the last action,
+// then the key of their list when a failure is unread; empty when nothing.
+func (m *Model) statusLine() string {
+	var parts []string
+	if v := m.busy.View(); v != "" {
+		parts = append(parts, v)
+	}
+	switch {
+	case m.status == "":
+	case m.statusErr:
+		parts = append(parts, sErr.Render(m.status))
+	default:
+		parts = append(parts, m.status)
+	}
+	if m.busy.Unread() > 0 {
+		parts = append(parts, sMuted.Render(tuikit.BusyKey+" travaux"))
+	}
+	return ansi.Truncate(strings.Join(parts, "   "), m.w, "…")
 }
 
 // list renders the rows around the selection.

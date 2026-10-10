@@ -45,20 +45,45 @@ func model(t *testing.T) *Model {
 	return m
 }
 
+func keyPress(k string) tea.KeyPressMsg {
+	switch k {
+	case "esc":
+		return tea.KeyPressMsg{Code: tea.KeyEscape}
+	case "enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab}
+	}
+	return tea.KeyPressMsg{Code: rune(k[0]), Text: k}
+}
+
+// press types keys and lets the jobs they start end.
 func press(m *Model, keys ...string) {
 	for _, k := range keys {
-		var msg tea.KeyPressMsg
-		switch k {
-		case "esc":
-			msg = tea.KeyPressMsg{Code: tea.KeyEscape}
-		case "enter":
-			msg = tea.KeyPressMsg{Code: tea.KeyEnter}
-		case "tab":
-			msg = tea.KeyPressMsg{Code: tea.KeyTab}
-		default:
-			msg = tea.KeyPressMsg{Code: rune(k[0]), Text: k}
+		before := m.busy.Running()
+		_, cmd := m.Update(keyPress(k))
+		if m.busy.Running() > before {
+			finish(m, cmd)
 		}
-		m.Update(msg)
+	}
+}
+
+// finish runs the job a key started, as bubbletea would, and hands its end
+// to the model, then the message the job carries: the job is the first
+// command of the batch Busy returns, its animation the second.
+func finish(m *Model, cmd tea.Cmd) {
+	first := func(cmd tea.Cmd) tea.Msg {
+		msg := cmd()
+		if b, ok := msg.(tea.BatchMsg); ok {
+			return b[0]()
+		}
+		return msg
+	}
+	_, next := m.Update(first(cmd))
+	if next != nil {
+		if msg := first(next); msg != nil {
+			m.Update(msg)
+		}
 	}
 }
 

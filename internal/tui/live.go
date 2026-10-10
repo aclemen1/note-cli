@@ -87,7 +87,7 @@ func stamp(path string) string {
 }
 
 // checkBin asks for a restart once a new binary has stayed the same for two checks,
-// and only when nothing is being typed.
+// and only when nothing is being typed and no job runs.
 func (m *Model) checkBin() bool {
 	if m.exe == "" {
 		return false
@@ -101,8 +101,8 @@ func (m *Model) checkBin() bool {
 		m.newStamp = now
 		return false
 	}
-	if m.modal.Open() || m.filtering {
-		m.say("nouvelle version installée : relance dès la fin de la saisie", false)
+	if m.modal.Open() || m.filtering || m.busy.Running() > 0 {
+		m.say("nouvelle version installée : relance dès la fin de la saisie et des travaux", false)
 		return false
 	}
 	return true
