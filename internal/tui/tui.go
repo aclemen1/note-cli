@@ -133,12 +133,11 @@ func New(cfgPath string, cfg *config.Config, spheres []string) *Model {
 	in := textinput.New()
 	in.Prompt = "/"
 	m := &Model{cfgPath: cfgPath, cfg: cfg, spheres: spheres, input: in, w: 80, h: 24}
-	if sources := cfg.Complete["refs"]; len(sources) > 0 {
-		c, err := complete.Load(sources...)
-		if err != nil {
-			m.say("complétion : "+err.Error(), true)
-		} else {
-			m.shared = c
+	if uses := cfg.Complete["refs"]; len(uses) > 0 {
+		c, missing := complete.FromConfig(uses)
+		m.shared = c
+		if len(missing) > 0 {
+			m.say("complétion : sources absentes de "+complete.File()+" : "+strings.Join(missing, ", "), true)
 		}
 	}
 	m.exe = executable()

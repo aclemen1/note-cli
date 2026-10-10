@@ -200,14 +200,21 @@ func TestConfigRefusesUnknownHookEvent(t *testing.T) {
 }
 
 func TestConfigCompleteByField(t *testing.T) {
-	for _, line := range []string{"complete: [a, b]\n", "complete:\n  refs: [a, b]\n"} {
+	for _, line := range []string{"complete: [a, b]\n", "complete:\n  refs: [a, b]\n", "complete:\n  refs: [a, {source: b, prefix: \"\"}]\n"} {
 		e := setup(t)
 		f, _ := os.OpenFile(e.cfg, os.O_APPEND|os.O_WRONLY, 0o644)
 		f.WriteString(line)
 		f.Close()
 		cfg, err := config.Load("")
-		if err != nil || strings.Join(cfg.Complete["refs"], ",") != "a,b" {
-			t.Fatalf("%q: %v %v", line, cfg.Complete, err)
+		if err != nil {
+			t.Fatalf("%q: %v", line, err)
+		}
+		var names []string
+		for _, u := range cfg.Complete["refs"] {
+			names = append(names, u.Source)
+		}
+		if strings.Join(names, ",") != "a,b" {
+			t.Fatalf("%q: %v", line, cfg.Complete)
 		}
 	}
 }

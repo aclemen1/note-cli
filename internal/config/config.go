@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/aclemen1/tuikit/complete"
 	"gopkg.in/yaml.v3"
 )
 
@@ -38,18 +39,18 @@ type Hook struct {
 }
 
 // Complete maps a field to its completion sources; a flat list is read as the sources of refs.
-type Complete map[string][]string
+type Complete map[string]complete.Uses
 
 func (c *Complete) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind == yaml.SequenceNode {
-		var l []string
+		var l complete.Uses
 		if err := n.Decode(&l); err != nil {
 			return err
 		}
 		*c = Complete{"refs": l}
 		return nil
 	}
-	var m map[string][]string
+	var m map[string]complete.Uses
 	if err := n.Decode(&m); err != nil {
 		return fmt.Errorf("complete: expected refs: [<source>, …]: %w", err)
 	}
