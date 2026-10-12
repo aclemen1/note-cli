@@ -1,3 +1,5 @@
+> **Ce dépôt est archivé.** Depuis le 12.10.2026, le code vit dans le monorepo privé `aclemen1/jarvis`, sous `note/`. Ce dépôt ne reçoit plus de changements.
+
 # note
 
 Notes tied to objects: an information that serves the follow-up of a case, a
